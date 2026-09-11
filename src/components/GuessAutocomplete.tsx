@@ -4,15 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { searchSongs } from "@/lib/itunesClient";
 import type { Song } from "@/lib/types";
 
+export interface GuessPayload {
+  label: string;
+  song?: Song;
+}
+
 interface GuessAutocompleteProps {
   disabled?: boolean;
-  onGuess: (label: string) => void;
+  onGuess: (payload: GuessPayload) => void;
 }
 
 export function GuessAutocomplete({ disabled, onGuess }: GuessAutocompleteProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Song[]>([]);
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -33,10 +39,28 @@ export function GuessAutocomplete({ disabled, onGuess }: GuessAutocompleteProps)
   const visibleResults = query.trim().length < 2 ? [] : results;
 
   function selectSong(song: Song) {
-    onGuess(`${song.title} ${song.artist}`);
+    onGuess({ label: `${song.title} ${song.artist}`, song });
     setQuery("");
     setResults([]);
     setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || visibleResults.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % visibleResults.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i - 1 + visibleResults.length) % visibleResults.length);
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      selectSong(visibleResults[activeIndex]);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+    }
   }
 
   return (
@@ -44,7 +68,11 @@ export function GuessAutocomplete({ disabled, onGuess }: GuessAutocompleteProps)
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (query.trim()) onGuess(query.trim());
+          if (activeIndex >= 0 && visibleResults[activeIndex]) {
+            selectSong(visibleResults[activeIndex]);
+            return;
+          }
+          if (query.trim()) onGuess({ label: query.trim() });
           setQuery("");
           setOpen(false);
         }}
@@ -53,9 +81,20 @@ export function GuessAutocomplete({ disabled, onGuess }: GuessAutocompleteProps)
         <input
           value={query}
           disabled={disabled}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActiveIndex(-1);
+          }}
+          onKeyDown={handleKeyDown}
           onFocus={() => visibleResults.length > 0 && setOpen(true)}
           placeholder="Titre ou artiste..."
+          aria-label="Propose un titre ou un artiste"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="guess-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant={activeIndex >= 0 ? `guess-option-${activeIndex}` : undefined}
+          autoComplete="off"
           className="flex-1 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 outline-none focus:border-cyan-500 disabled:opacity-50"
         />
         <button
@@ -68,12 +107,21 @@ export function GuessAutocomplete({ disabled, onGuess }: GuessAutocompleteProps)
       </form>
 
       {open && visibleResults.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-xl">
-          {visibleResults.map((song) => (
-            <li key={song.id}>
+        <ul
+          id="guess-listbox"
+          role="listbox"
+          className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-xl"
+        >
+          {visibleResults.map((song, i) => (
+            <li key={song.id} id={`guess-option-${i}`} role="option" aria-selected={i === activeIndex}>
               <button
+                type="button"
+                onMouseEnter={() => setActiveIndex(i)}
                 onClick={() => selectSong(song)}
-                className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-zinc-800"
+                className={
+                  "flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-zinc-800" +
+                  (i === activeIndex ? " bg-zinc-800" : "")
+                }
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={song.artworkUrl} alt="" className="h-8 w-8 rounded" />

@@ -38,6 +38,8 @@ async function refreshSpotifyAccessToken(refreshToken: string) {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Spotify({
+      clientId: process.env.SPOTIFY_CLIENT_ID,
+      clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
       authorization: `https://accounts.spotify.com/authorize?scope=${encodeURIComponent(
         SPOTIFY_SCOPES
       )}`,

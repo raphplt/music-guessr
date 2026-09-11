@@ -5,6 +5,10 @@ import Script from "next/script";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useSettingsStore } from "@/store/settingsStore";
 
+// Apple Music necessite un compte Apple Developer Program (payant) non disponible
+// pour le moment : le bloc reste implemente mais masque tant que ce n'est pas configure.
+const SHOW_APPLE_MUSIC = false;
+
 export function ConnectPanel() {
   const { data: session } = useSession();
   const setSpotifyTaste = useSettingsStore((s) => s.setSpotifyTaste);
@@ -64,11 +68,13 @@ export function ConnectPanel() {
 
   return (
     <div className="space-y-3">
-      <Script
-        src="https://js-cdn.music.apple.com/musickit/v3/musickit.js"
-        strategy="afterInteractive"
-        onLoad={() => setMusicKitReady(true)}
-      />
+      {SHOW_APPLE_MUSIC && (
+        <Script
+          src="https://js-cdn.music.apple.com/musickit/v3/musickit.js"
+          strategy="afterInteractive"
+          onLoad={() => setMusicKitReady(true)}
+        />
+      )}
 
       <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
         <div>
@@ -96,26 +102,28 @@ export function ConnectPanel() {
         )}
       </div>
 
-      <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-        <div>
-          <div className="font-semibold">Apple Music</div>
-          <div className="text-xs text-zinc-500">
-            {appleStatus === "connected" && `Connecte - ${appleArtists.length} artistes importes`}
-            {appleStatus === "unavailable" &&
-              "Non configure (APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_MUSICKIT_PRIVATE_KEY manquants)"}
-            {appleStatus === "error" && "Connexion echouee, reessaie"}
-            {(appleStatus === "idle" || appleStatus === "loading") &&
-              "Importe tes artistes favoris depuis Apple Music"}
+      {SHOW_APPLE_MUSIC && (
+        <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+          <div>
+            <div className="font-semibold">Apple Music</div>
+            <div className="text-xs text-zinc-500">
+              {appleStatus === "connected" && `Connecte - ${appleArtists.length} artistes importes`}
+              {appleStatus === "unavailable" &&
+                "Non configure (APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_MUSICKIT_PRIVATE_KEY manquants)"}
+              {appleStatus === "error" && "Connexion echouee, reessaie"}
+              {(appleStatus === "idle" || appleStatus === "loading") &&
+                "Importe tes artistes favoris depuis Apple Music"}
+            </div>
           </div>
+          <button
+            onClick={connectAppleMusic}
+            disabled={appleStatus === "loading"}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
+          >
+            {appleStatus === "loading" ? "..." : "Se connecter"}
+          </button>
         </div>
-        <button
-          onClick={connectAppleMusic}
-          disabled={appleStatus === "loading"}
-          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
-        >
-          {appleStatus === "loading" ? "..." : "Se connecter"}
-        </button>
-      </div>
+      )}
     </div>
   );
 }

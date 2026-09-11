@@ -3,18 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useHistoryStore } from "@/store/historyStore";
 import { fetchSongsForArtists, searchSongs } from "@/lib/itunesClient";
 import {
   DIFFICULTY_PRESETS,
   MAX_ATTEMPTS,
-  isCorrectGuess,
   pickRound,
   randomStartOffset,
-  scoreForAttempt,
   snippetDurationForAttempt,
 } from "@/lib/gameEngine";
-import type { GuessAttempt, RoundResult, Song } from "@/lib/types";
+import type { RoundResult, Song } from "@/lib/types";
 import { useAudioSnippet } from "@/hooks/useAudioSnippet";
+import { useSongAttempts } from "@/hooks/useSongAttempts";
 import { SegmentedTimer } from "@/components/SegmentedTimer";
 import { GuessAutocomplete } from "@/components/GuessAutocomplete";
 import { RevealCard } from "@/components/RevealCard";
@@ -26,18 +26,35 @@ export function GameBoard() {
   const startMode = useSettingsStore((s) => s.startMode);
   const roundLength = useSettingsStore((s) => s.roundLength);
   const filters = useSettingsStore((s) => s.filters);
+  const addHistoryEntry = useHistoryStore((s) => s.addEntry);
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [round, setRound] = useState<Song[]>([]);
   const [songIndex, setSongIndex] = useState(0);
-  const [attemptIndex, setAttemptIndex] = useState(0);
-  const [attempts, setAttempts] = useState<GuessAttempt[]>([]);
-  const [revealed, setRevealed] = useState(false);
   const [results, setResults] = useState<RoundResult[]>([]);
 
   const audio = useAudioSnippet();
   const presets = DIFFICULTY_PRESETS[difficulty];
   const currentSong = round[songIndex];
+
+  const { attemptIndex, attempts, revealed, guess, skip, reset } = useSongAttempts({
+    song: currentSong,
+    onFinish: ({ won, attempts: finalAttempts, points }) => {
+      audio.stop();
+      setResults((prev) => [...prev, { song: currentSong, attempts: finalAttempts, won, pointsEarned: points }]);
+      addHistoryEntry(
+        {
+          date: new Date().toISOString(),
+          songTitle: currentSong.title,
+          songArtist: currentSong.artist,
+          won,
+          attempts: finalAttempts.length,
+          points,
+        },
+        currentSong.id
+      );
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +79,10 @@ export function GameBoard() {
         setLoadState("empty");
         return;
       }
-      setRound(pickRound(pool, roundLength));
+      const hasPlayed = useHistoryStore.getState().hasPlayed;
+      const unseen = pool.filter((song) => !hasPlayed(song.id));
+      const finalPool = unseen.length >= roundLength ? unseen : pool;
+      setRound(pickRound(finalPool, roundLength));
       setLoadState("ready");
     }
     buildPool().catch(() => !cancelled && setLoadState("error"));
@@ -99,48 +119,9 @@ export function GameBoard() {
     audio.play({ startOffset, duration: currentDuration });
   }
 
-  function finishSong(won: boolean, finalAttempts: GuessAttempt[]) {
-    audio.stop();
-    setResults((prev) => [
-      ...prev,
-      {
-        song: currentSong,
-        attempts: finalAttempts,
-        won,
-        pointsEarned: won ? scoreForAttempt(attemptIndex) : 0,
-      },
-    ]);
-    setRevealed(true);
-  }
-
-  function handleGuess(label: string) {
-    if (!currentSong || revealed) return;
-    const correct = isCorrectGuess(label, currentSong);
-    const nextAttempts = [...attempts, { guess: label, correct, skipped: false }];
-    setAttempts(nextAttempts);
-
-    if (correct) {
-      finishSong(true, nextAttempts);
-      return;
-    }
-
-    if (attemptIndex + 1 >= MAX_ATTEMPTS) {
-      finishSong(false, nextAttempts);
-      return;
-    }
-
-    setAttemptIndex((i) => i + 1);
-  }
-
-  function handleSkip() {
-    handleGuess("");
-  }
-
   function nextSong() {
     audio.stop();
-    setAttemptIndex(0);
-    setAttempts([]);
-    setRevealed(false);
+    reset();
     setSongIndex((i) => i + 1);
   }
 
@@ -174,12 +155,20 @@ export function GameBoard() {
           {wins} / {results.length} morceaux trouves
         </p>
         <p className="text-4xl font-black text-cyan-400">{total} pts</p>
-        <Link
-          href="/"
-          className="inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-zinc-950 hover:bg-cyan-300"
-        >
-          Rejouer
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            href="/"
+            className="flex-1 rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-zinc-950 hover:bg-cyan-300"
+          >
+            Rejouer
+          </Link>
+          <Link
+            href="/history"
+            className="flex-1 rounded-xl border border-zinc-700 px-6 py-3 font-semibold text-zinc-300 hover:border-zinc-600"
+          >
+            Voir mes stats
+          </Link>
+        </div>
       </div>
     );
   }
@@ -206,21 +195,23 @@ export function GameBoard() {
         <button
           onClick={playCurrentSnippet}
           disabled={audio.isLoading || revealed}
+          aria-label={audio.isPlaying ? "Extrait en cours de lecture" : "Lire l'extrait"}
           className="flex h-20 w-20 items-center justify-center rounded-full bg-cyan-400 text-zinc-950 shadow-lg transition hover:bg-cyan-300 disabled:opacity-50"
         >
           {audio.isPlaying ? (
-            <span className="text-2xl">&#10073;&#10073;</span>
+            <span aria-hidden className="text-2xl">&#10073;&#10073;</span>
           ) : (
-            <span className="ml-1 text-2xl">&#9654;</span>
+            <span aria-hidden className="ml-1 text-2xl">&#9654;</span>
           )}
         </button>
       </div>
+      {audio.error && <p className="text-center text-sm text-red-400">{audio.error}</p>}
 
       {!revealed && (
         <div className="space-y-3">
-          <GuessAutocomplete onGuess={handleGuess} />
+          <GuessAutocomplete onGuess={guess} />
           <button
-            onClick={handleSkip}
+            onClick={skip}
             className="w-full rounded-xl border border-zinc-800 py-2 text-sm text-zinc-400 hover:border-zinc-700"
           >
             Passer
@@ -228,7 +219,7 @@ export function GameBoard() {
         </div>
       )}
 
-      <ul className="space-y-1 text-sm text-zinc-500">
+      <ul aria-live="polite" className="space-y-1 text-sm text-zinc-500">
         {attempts.map((a, i) => (
           <li key={i} className={a.correct ? "text-emerald-400" : "text-zinc-500"}>
             {i + 1}. {a.guess || "(passe)"}

@@ -27,6 +27,20 @@ function toSong(raw: ItunesRawResult): Song | null {
   };
 }
 
+/**
+ * Comparaison souple : le genre iTunes ("Hip-Hop/Rap") ne correspond pas
+ * toujours mot pour mot au libelle choisi dans les filtres, donc on
+ * compare par sous-chaine sur chaque partie separee par "/".
+ */
+export function genreMatches(songGenre: string, filterGenre: string): boolean {
+  const a = songGenre.toLowerCase().trim();
+  const b = filterGenre.toLowerCase().trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const parts = b.split("/").map((p) => p.trim());
+  return parts.some((part) => part.length > 0 && (a.includes(part) || part.includes(a)));
+}
+
 export async function searchSongs(
   term: string,
   opts: { limit?: number; genre?: string } = {}
@@ -42,7 +56,7 @@ export async function searchSongs(
   return results
     .map(toSong)
     .filter((s): s is Song => s !== null)
-    .filter((s) => !opts.genre || s.genre === opts.genre);
+    .filter((s) => !opts.genre || genreMatches(s.genre, opts.genre));
 }
 
 export async function fetchSongsForArtists(

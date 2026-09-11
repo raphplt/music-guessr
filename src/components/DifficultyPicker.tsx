@@ -17,6 +17,7 @@ export function DifficultyPicker() {
         <button
           key={d}
           onClick={() => setDifficulty(d)}
+          aria-pressed={difficulty === d}
           className={clsx(
             "rounded-xl border px-4 py-3 text-left transition",
             difficulty === d
