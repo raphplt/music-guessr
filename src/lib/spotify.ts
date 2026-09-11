@@ -1,6 +1,8 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { seal, open } from "@/lib/token";
 import { tracksForArtist, spotifyArtistSlug } from "@/lib/itunes";
 import { fold } from "@/lib/catalogue";
@@ -210,14 +212,39 @@ export async function getTaste(session: SpotifySession): Promise<TasteProfile> {
 /* ---------------- Taste → playable pool ---------------- */
 
 const poolCache = new Map<string, { at: number; tracks: CatalogueTrack[] }>();
+const POOL_DIR = join(process.cwd(), ".cache", "spotify-pools");
+
+/** Dev servers isolate modules per route, so the pool is also persisted on disk (keyed by user id). */
+function readPoolDisk(userId: string) {
+  try {
+    const p = join(POOL_DIR, `${userId.replace(/[^a-z0-9_-]/gi, "_")}.json`);
+    if (!existsSync(p)) return null;
+    const entry = JSON.parse(readFileSync(p, "utf8")) as { at: number; tracks: CatalogueTrack[] };
+    return Date.now() - entry.at < TASTE_TTL ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePoolDisk(userId: string, entry: { at: number; tracks: CatalogueTrack[] }) {
+  try {
+    mkdirSync(POOL_DIR, { recursive: true });
+    writeFileSync(join(POOL_DIR, `${userId.replace(/[^a-z0-9_-]/gi, "_")}.json`), JSON.stringify(entry));
+  } catch {
+    /* read-only filesystem */
+  }
+}
 
 /**
  * Builds the personal pool: iTunes previews for the listener's top artists.
  * Tracks that also appear in their Spotify top tracks are forced to "easy".
  */
 export async function getTastePool(taste: TasteProfile): Promise<CatalogueTrack[]> {
-  const hit = poolCache.get(taste.profile.id);
-  if (hit && Date.now() - hit.at < TASTE_TTL) return hit.tracks;
+  const hit = poolCache.get(taste.profile.id) ?? readPoolDisk(taste.profile.id);
+  if (hit && Date.now() - hit.at < TASTE_TTL) {
+    poolCache.set(taste.profile.id, hit);
+    return hit.tracks;
+  }
 
   const artists = taste.artists.slice(0, 40);
   const results: CatalogueTrack[][] = [];
@@ -242,7 +269,9 @@ export async function getTastePool(taste: TasteProfile): Promise<CatalogueTrack[
     const k = `${fold(t.artist)}::${fold(t.title)}`;
     return known.has(k) ? { ...t, difficulty: "easy" as const } : t;
   });
-  poolCache.set(taste.profile.id, { at: Date.now(), tracks });
+  const entry = { at: Date.now(), tracks };
+  poolCache.set(taste.profile.id, entry);
+  writePoolDisk(taste.profile.id, entry);
   return tracks;
 }
 

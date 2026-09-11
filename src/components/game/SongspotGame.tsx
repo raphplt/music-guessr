@@ -449,7 +449,9 @@ export function SongspotGame({ collection = null, mode = "practice", initialFilt
       ? "No audio preview"
       : status === "network-error" && (roundError || submitError)
         ? (roundError ?? submitError)
-        : STATUS_LABEL[status];
+        : status === "preparing" && source === "spotify"
+          ? "Importing your Spotify taste…"
+          : STATUS_LABEL[status];
   const recoverable = status === "network-error" || status === "audio-blocked";
 
   const recover = () => {

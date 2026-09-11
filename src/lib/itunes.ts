@@ -68,17 +68,17 @@ function writeDisk(slug: string, tracks: CatalogueTrack[]) {
 
 async function search(term: string, country: string, limit: number): Promise<ITunesResult[]> {
   const url = `https://itunes.apple.com/search?${new URLSearchParams({ term, entity: "song", media: "music", attribute: "artistTerm", limit: String(limit), country })}`;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(url, { headers: { "user-agent": "music-guessr/1.0" }, cache: "no-store" });
     if (res.status === 429 || res.status === 403 || res.status >= 500) {
-      await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       continue;
     }
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`iTunes ${res.status}`);
     const json = (await res.json()) as { results: ITunesResult[] };
     return json.results ?? [];
   }
-  return [];
+  throw new Error("iTunes rate limited");
 }
 
 /**
@@ -140,8 +140,11 @@ export async function tracksForArtist(name: string, opts: { limit?: number; coun
       });
       rank++;
     }
-    memory.set(slug, tracks);
-    writeDisk(slug, tracks);
+    // Only persist real results: an empty list is usually iTunes throttling, not an unknown artist.
+    if (tracks.length > 0) {
+      memory.set(slug, tracks);
+      writeDisk(slug, tracks);
+    }
     return tracks;
   })().finally(() => inflight.delete(slug));
 
